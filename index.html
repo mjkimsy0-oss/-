@@ -782,12 +782,25 @@
     });
   }
 
+  function getScrollableAncestor(el){
+    var node = el ? el.parentElement : null;
+    while (node && node !== document.body){
+      var style = window.getComputedStyle(node);
+      if (/(auto|scroll)/.test(style.overflowY) && node.scrollHeight > node.clientHeight + 2){
+        return node;
+      }
+      node = node.parentElement;
+    }
+    return null; // signals "use whole-page scrolling" fallback
+  }
+
   function startFolderDrag(li, folder, parentId){
     var draggedId = folder.id;
     li.classList.add("dragging");
     if (navigator.vibrate) navigator.vibrate(15);
 
-    var scrollContainer = document.querySelector(".drawer");
+    var scrollEl = getScrollableAncestor(document.getElementById("folderList"));
+    var usingWindow = !scrollEl;
     var pointerY = li.getBoundingClientRect().top;
     var lastTargetId = null;
     var scrollRAF = null;
@@ -801,14 +814,16 @@
     }
 
     function autoScrollStep(){
-      if (scrollContainer){
-        var rect = scrollContainer.getBoundingClientRect();
-        var margin = 56;
-        if (pointerY < rect.top + margin){
-          scrollContainer.scrollTop -= Math.ceil((rect.top + margin - pointerY) / 4);
-        } else if (pointerY > rect.bottom - margin){
-          scrollContainer.scrollTop += Math.ceil((pointerY - (rect.bottom - margin)) / 4);
-        }
+      var top, bottom;
+      if (usingWindow){ top = 0; bottom = window.innerHeight; }
+      else { var rect = scrollEl.getBoundingClientRect(); top = rect.top; bottom = rect.bottom; }
+      var margin = 70;
+      if (pointerY < top + margin){
+        var upDelta = -Math.ceil((top + margin - pointerY) / 3);
+        if (usingWindow) window.scrollBy(0, upDelta); else scrollEl.scrollTop += upDelta;
+      } else if (pointerY > bottom - margin){
+        var downDelta = Math.ceil((pointerY - (bottom - margin)) / 3);
+        if (usingWindow) window.scrollBy(0, downDelta); else scrollEl.scrollTop += downDelta;
       }
       scrollRAF = requestAnimationFrame(autoScrollStep);
     }
