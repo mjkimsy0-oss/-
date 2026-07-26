@@ -320,20 +320,18 @@
     </div>
 
     <div class="nav-section">
-      <div class="head"><span>폴더</span><button id="addFolderBtn" title="새 폴더">+ 새 폴더</button></div>
+      <div class="head">
+        <span>폴더</span>
+        <span style="display:flex; gap:6px;">
+          <button type="button" id="toggleFoldersBtn" title="접기/펼치기">▾</button>
+          <button type="button" id="addFolderBtn" title="새 폴더">+ 새 폴더</button>
+        </span>
+      </div>
       <ul class="nav-list" id="folderList"></ul>
     </div>
 
-    <div class="nav-section">
-      <div class="head"><span>백업</span></div>
-      <div style="display:flex; gap:8px;">
-        <button type="button" class="btn-mini" id="exportBtn" style="flex:1;">⬇ 내보내기</button>
-        <label class="btn-mini" style="flex:1; text-align:center; cursor:pointer;">⬆ 가져오기<input type="file" id="importFile" accept="application/json" style="display:none;"></label>
-      </div>
-      <div class="field-hint" style="margin-top:7px;">폰을 바꿀 때, 여기서 내보낸 파일을 새 폰에서 같은 사이트를 열고 가져오기 하면 그대로 이어져요.</div>
-      <button type="button" class="btn-mini" id="setExabaseKeyBtn" style="margin-top:9px; width:100%;">🔑 이미지 조회 키 설정 (월 20,000건 무료, 추천)</button>
-      <button type="button" class="btn-mini" id="setApiKeyBtn" style="margin-top:6px; width:100%;">🔑 보조 키 설정 (일 50건, 키 없어도 동작)</button>
-    </div>
+    <div style="flex:1;"></div>
+    <button type="button" class="btn-mini" id="openSettingsBtn" style="width:100%;">⚙ 설정</button>
   </aside>
 
   <main class="main">
@@ -458,6 +456,33 @@
         <button type="submit" class="btn-primary">저장</button>
       </div>
     </form>
+  </div>
+</div>
+
+<!-- Settings modal: backup + image-lookup API keys -->
+<div class="overlay" id="settingsOverlay">
+  <div class="modal" style="max-width:460px;">
+    <h2>설정</h2>
+
+    <div class="field">
+      <label>백업</label>
+      <div style="display:flex; gap:8px;">
+        <button type="button" class="btn-mini" id="exportBtn" style="flex:1;">⬇ 내보내기</button>
+        <label class="btn-mini" style="flex:1; text-align:center; cursor:pointer;">⬆ 가져오기<input type="file" id="importFile" accept="application/json" style="display:none;"></label>
+      </div>
+      <div class="field-hint">폰을 바꿀 때, 여기서 내보낸 파일을 새 폰에서 같은 사이트를 열고 가져오기 하면 그대로 이어져요.</div>
+    </div>
+
+    <div class="field">
+      <label>이미지 조회 서비스</label>
+      <button type="button" class="btn-mini" id="setExabaseKeyBtn" style="width:100%;">🔑 이미지 조회 키 설정 (월 20,000건 무료, 추천)</button>
+      <button type="button" class="btn-mini" id="setApiKeyBtn" style="margin-top:6px; width:100%;">🔑 보조 키 설정 (일 50건, 키 없어도 동작)</button>
+      <div class="field-hint">위 키를 넣으면 자동으로 우선 사용돼요. 보조 키는 안 넣어도 앱이 잘 동작하니 필수는 아니에요.</div>
+    </div>
+
+    <div class="modal-actions">
+      <button type="button" class="btn-ghost" id="closeSettingsBtn">닫기</button>
+    </div>
   </div>
 </div>
 
@@ -960,16 +985,25 @@
 
     req
       .then(function(res){
-        if (res.status === 429) throw new Error("rate_limited");
-        if (!res.ok) throw new Error("fetch_failed");
+        if (res.status === 429) throw { kind:"rate_limited" };
+        if (!res.ok){
+          return res.text().then(function(bodyText){
+            throw { kind:"http_error", status:res.status, body:bodyText };
+          });
+        }
         return res.json();
       })
       .then(function(json){
         if (myToken !== state.fetchToken) return; // stale response, modal moved on
         var title = null, imageUrl = null, found = false;
         if (provider === "exabase"){
-          title = json.title || null;
-          imageUrl = json.image || null;
+          // parse defensively: different Exabase response shapes have been seen (flat vs nested)
+          var web = (json.extraction && json.extraction.web) || null;
+          title = json.title || (web && web.title) || null;
+          imageUrl = json.image
+            || (json.image && json.image.url)
+            || (web && web.image && web.image.url)
+            || null;
           found = true;
         } else if (json.status === "success" && json.data){
           title = json.data.title || null;
@@ -995,13 +1029,19 @@
       })
       .catch(function(err){
         if (myToken !== state.fetchToken) return;
-        if (err.message === "rate_limited"){
+        if (err && err.kind === "rate_limited"){
           var hint = provider==="exabase"
             ? "월 20,000건 무료 한도를 초과했어요."
             : "무료 조회 한도를 초과했어요 (보통 하루 지나면 풀려요). 사이드바에서 Exabase 키를 설정하면 한도가 훨씬 늘어나요.";
           setThumbStatus(hint + " 아래에서 직접 지정할 수 있어요.", "error");
+        } else if (err && err.kind === "http_error"){
+          setThumbStatus(
+            "이미지 조회 실패 (오류 코드 " + err.status + ", " + provider + "). API 키를 다시 확인해보시거나, 아래에서 직접 지정해주세요.",
+            "error"
+          );
+          console.error("[link-archive] " + provider + " error " + err.status + ": " + err.body);
         } else {
-          setThumbStatus("이미지를 불러오지 못했어요. 아래에서 직접 지정해주세요.", "error");
+          setThumbStatus("이미지를 불러오지 못했어요 (네트워크 또는 CORS 오류일 수 있어요). 아래에서 직접 지정해주세요.", "error");
         }
       });
   }
@@ -1158,6 +1198,25 @@
   document.getElementById("cancelFolderBtn").addEventListener("click", closeFolderModal);
   folderOverlay.addEventListener("click", function(e){ if (e.target===folderOverlay) closeFolderModal(); });
 
+  /* ---------------- settings modal ---------------- */
+  var settingsOverlay = document.getElementById("settingsOverlay");
+  document.getElementById("openSettingsBtn").addEventListener("click", function(){ settingsOverlay.classList.add("open"); });
+  document.getElementById("closeSettingsBtn").addEventListener("click", function(){ settingsOverlay.classList.remove("open"); });
+  settingsOverlay.addEventListener("click", function(e){ if (e.target===settingsOverlay) settingsOverlay.classList.remove("open"); });
+
+  /* ---------------- folder list collapse ---------------- */
+  var foldersCollapsed = localStorage.getItem("linkArchiveFoldersCollapsed") === "1";
+  function updateFolderCollapseUI(){
+    document.getElementById("folderList").style.display = foldersCollapsed ? "none" : "";
+    document.getElementById("toggleFoldersBtn").textContent = foldersCollapsed ? "▸" : "▾";
+  }
+  document.getElementById("toggleFoldersBtn").addEventListener("click", function(){
+    foldersCollapsed = !foldersCollapsed;
+    localStorage.setItem("linkArchiveFoldersCollapsed", foldersCollapsed ? "1" : "0");
+    updateFolderCollapseUI();
+  });
+  updateFolderCollapseUI();
+
   folderForm.addEventListener("submit", function(e){
     e.preventDefault();
     var name = document.getElementById("f_foldername").value.trim();
@@ -1299,7 +1358,7 @@
 
   /* ---------------- keyboard ---------------- */
   document.addEventListener("keydown", function(e){
-    if (e.key==="Escape"){ closeLinkModal(); closeFolderModal(); }
+    if (e.key==="Escape"){ closeLinkModal(); closeFolderModal(); settingsOverlay.classList.remove("open"); }
   });
 
   /* ---------------- init ---------------- */
