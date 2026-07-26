@@ -107,9 +107,17 @@
   }
   .folder-toggle:hover{ color:var(--pink-deep); }
   .folder-toggle-spacer{ width:16px; flex-shrink:0; display:inline-block; }
-  .nav-item.dragging{ opacity:0.45; touch-action:none; }
-  .nav-item.drag-over-top{ box-shadow:0 -2px 0 var(--pink-strong) inset; }
-  .nav-item.drag-over-bottom{ box-shadow:0 2px 0 var(--pink-strong) inset; }
+  .nav-item{ touch-action:pan-y; }
+  .nav-item.drag-hidden{ opacity:0; }
+  .drag-ghost{
+    position:fixed; z-index:9999; pointer-events:none; margin:0;
+    background:#fff; border:1px solid var(--pink-strong); border-radius:8px;
+    box-shadow:0 16px 28px -10px rgba(217,108,154,0.5), 0 3px 10px rgba(0,0,0,0.18);
+    transform:scale(1.03) rotate(-1deg);
+    display:flex !important;
+  }
+  .drag-ghost .folder-actions{ display:none !important; }
+  body.is-dragging-folder{ overscroll-behavior:none; touch-action:none; }
   .folder-actions button{
     background:none; border:none; color:var(--ink-faint); cursor:pointer; padding:2px; line-height:0;
   }
@@ -765,8 +773,8 @@
       var moved = false;
       var timer = setTimeout(function(){
         if (moved) return;
-        startFolderDrag(li, folder, parentId);
-      }, 450);
+        startFolderDrag(li, folder, parentId, startX, startY);
+      }, 420);
       function onMove(ev){
         if (Math.abs(ev.clientY-startY) > 10 || Math.abs(ev.clientX-startX) > 10){
           moved = true; clearTimeout(timer); cleanup();
@@ -794,35 +802,48 @@
     return null; // signals "use whole-page scrolling" fallback
   }
 
-  function startFolderDrag(li, folder, parentId){
+  function startFolderDrag(li, folder, parentId, startX, startY){
     var draggedId = folder.id;
-    li.classList.add("dragging");
+    var rect = li.getBoundingClientRect();
+    var grabOffsetY = startY - rect.top;
+
+    // floating ghost that follows the finger 1:1, detached from list layout
+    var ghost = li.cloneNode(true);
+    ghost.className = "nav-item drag-ghost";
+    ghost.style.width = rect.width + "px";
+    ghost.style.left = rect.left + "px";
+    ghost.style.top = rect.top + "px";
+    ghost.style.paddingLeft = li.style.paddingLeft;
+    document.body.appendChild(ghost);
+    document.body.classList.add("is-dragging-folder");
+
+    li.classList.add("drag-hidden");
     if (navigator.vibrate) navigator.vibrate(15);
 
     var scrollEl = getScrollableAncestor(document.getElementById("folderList"));
     var usingWindow = !scrollEl;
-    var pointerY = li.getBoundingClientRect().top;
+    var curPointerY = startY;
     var lastTargetId = null;
     var scrollRAF = null;
 
-    function markDragging(){
+    function markHidden(){
       Array.prototype.slice.call(document.querySelectorAll("#folderList .nav-item")).forEach(function(el){
-        el.classList.remove("dragging");
+        el.classList.remove("drag-hidden");
       });
       var el = document.querySelector('#folderList .nav-item[data-folder-id="' + draggedId + '"]');
-      if (el) el.classList.add("dragging");
+      if (el) el.classList.add("drag-hidden");
     }
 
     function autoScrollStep(){
       var top, bottom;
       if (usingWindow){ top = 0; bottom = window.innerHeight; }
-      else { var rect = scrollEl.getBoundingClientRect(); top = rect.top; bottom = rect.bottom; }
+      else { var r = scrollEl.getBoundingClientRect(); top = r.top; bottom = r.bottom; }
       var margin = 70;
-      if (pointerY < top + margin){
-        var upDelta = -Math.ceil((top + margin - pointerY) / 3);
+      if (curPointerY < top + margin){
+        var upDelta = -Math.ceil((top + margin - curPointerY) / 3);
         if (usingWindow) window.scrollBy(0, upDelta); else scrollEl.scrollTop += upDelta;
-      } else if (pointerY > bottom - margin){
-        var downDelta = Math.ceil((pointerY - (bottom - margin)) / 3);
+      } else if (curPointerY > bottom - margin){
+        var downDelta = Math.ceil((curPointerY - (bottom - margin)) / 3);
         if (usingWindow) window.scrollBy(0, downDelta); else scrollEl.scrollTop += downDelta;
       }
       scrollRAF = requestAnimationFrame(autoScrollStep);
@@ -831,21 +852,23 @@
 
     function onMove(ev){
       ev.preventDefault();
-      pointerY = ev.clientY;
+      curPointerY = ev.clientY;
+      ghost.style.top = (ev.clientY - grabOffsetY) + "px";
+
       var siblings = Array.prototype.slice.call(
         document.querySelectorAll('#folderList .nav-item[data-parent-id="' + (parentId || "") + '"]')
       ).filter(function(el){ return el.dataset.folderId !== draggedId; });
       var target = null, before = true, bestDist = Infinity;
       siblings.forEach(function(sib){
-        var rect = sib.getBoundingClientRect();
-        var center = rect.top + rect.height / 2;
+        var r = sib.getBoundingClientRect();
+        var center = r.top + r.height / 2;
         var dist = Math.abs(center - ev.clientY);
         if (dist < bestDist){ bestDist = dist; target = sib; before = ev.clientY < center; }
       });
       if (target && target.dataset.folderId !== lastTargetId){
         reorderFolderAmongSiblings(draggedId, target.dataset.folderId, before, parentId);
         renderFolderList();
-        markDragging();
+        markHidden();
         lastTargetId = target.dataset.folderId;
       }
     }
@@ -853,9 +876,11 @@
       document.removeEventListener("pointermove", onMove);
       document.removeEventListener("pointerup", onUp);
       cancelAnimationFrame(scrollRAF);
-      saveData();
+      ghost.remove();
+      document.body.classList.remove("is-dragging-folder");
       var el = document.querySelector('#folderList .nav-item[data-folder-id="' + draggedId + '"]');
-      if (el) el.classList.remove("dragging");
+      if (el) el.classList.remove("drag-hidden");
+      saveData();
     }
     document.addEventListener("pointermove", onMove);
     document.addEventListener("pointerup", onUp);
