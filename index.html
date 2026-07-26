@@ -995,7 +995,7 @@
     function fetchProvider(name){
       if (name === "worker"){
         var base = normalizeWorkerUrl(state.workerUrl);
-        return fetch(base + "?q=" + encodeURIComponent(toBase64(url))).then(parseRes).then(function(json){
+        return fetch(base + "/" + encodeURIComponent(toBase64(url))).then(parseRes).then(function(json){
           var web = (json.extraction && json.extraction.web) || null;
           return {
             title: json.title || (web && web.title) || null,
@@ -1319,7 +1319,7 @@
     btn.textContent = "테스트 중…";
     btn.disabled = true;
     var base = normalizeWorkerUrl(state.workerUrl);
-    fetch(base + "?q=" + encodeURIComponent(toBase64("https://apple.com")))
+    fetch(base + "/" + encodeURIComponent(toBase64("https://apple.com")))
       .then(function(res){
         return res.text().then(function(bodyText){ return { status: res.status, ok: res.ok, body: bodyText }; });
       })
