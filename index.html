@@ -475,8 +475,8 @@
 
     <div class="field">
       <label>이미지 조회 서비스</label>
-      <button type="button" class="btn-mini" id="setExabaseKeyBtn" style="width:100%;">🔑 이미지 조회 키 설정 (월 20,000건 무료, 추천)</button>
-      <button type="button" class="btn-mini" id="testExabaseBtn" style="width:100%; margin-top:6px;">🔍 Exabase 연결 테스트</button>
+      <button type="button" class="btn-mini" id="setWorkerUrlBtn" style="width:100%;">🔗 이미지 조회 프록시 주소 설정 (월 20,000건, 추천)</button>
+      <button type="button" class="btn-mini" id="testWorkerBtn" style="width:100%; margin-top:6px;">🔍 연결 테스트</button>
       <button type="button" class="btn-mini" id="setApiKeyBtn" style="margin-top:6px; width:100%;">🔑 보조 키 설정 (일 50건, 키 없어도 동작)</button>
       <div class="field-hint">위 키를 넣으면 자동으로 우선 사용돼요. 보조 키는 안 넣어도 앱이 잘 동작하니 필수는 아니에요.</div>
     </div>
@@ -607,7 +607,7 @@
     fetchToken: 0,
     lastFetchedUrl: null,
     microlinkApiKey: localStorage.getItem("linkArchiveMicrolinkKey") || "",
-    exabaseApiKey: localStorage.getItem("linkArchiveExabaseKey") || "",
+    workerUrl: localStorage.getItem("linkArchiveWorkerUrl") || "",
     viewMode: localStorage.getItem("linkArchiveViewMode") || "gallery"
   };
 
@@ -972,18 +972,17 @@
     setThumbStatus("이미지를 불러오는 중…", "loading");
 
     var providers = [];
-    if (state.exabaseApiKey) providers.push("exabase");
+    if (state.workerUrl) providers.push("worker");
     providers.push("microlink"); // always available as a fallback, even without a key
 
-    var providerLabel = { exabase:"Exabase", microlink:"microlink" };
+    var providerLabel = { worker:"Exabase", microlink:"microlink" };
     var bestTitle = null;
     var lastErr = null;
 
     function fetchProvider(name){
-      if (name === "exabase"){
-        return fetch("https://api.exabase.io/v2/link-preview?q=" + encodeURIComponent(url), {
-          headers: { "Authorization": "Bearer " + state.exabaseApiKey }
-        }).then(parseRes).then(function(json){
+      if (name === "worker"){
+        var base = state.workerUrl.replace(/\/+$/, "");
+        return fetch(base + "?url=" + encodeURIComponent(url)).then(parseRes).then(function(json){
           var web = (json.extraction && json.extraction.web) || null;
           return {
             title: json.title || (web && web.title) || null,
@@ -1281,46 +1280,45 @@
   updateViewToggleUI();
 
   /* ---------------- backup: export / import ---------------- */
-  document.getElementById("setExabaseKeyBtn").addEventListener("click", function(){
-    var current = state.exabaseApiKey || "";
+  document.getElementById("setWorkerUrlBtn").addEventListener("click", function(){
+    var current = state.workerUrl || "";
     var input = prompt(
-      "exabase.io에서 무료로 발급받은 API 키를 입력하세요.\n" +
-      "(한 달 20,000건 무료 — 신용카드 필요 없음)\n" +
-      "발급: exabase.io 접속 → Start for free → 가입 → 콘솔에서 API 키 복사\n\n" +
-      "이 키가 있으면 이미지 조회에 자동으로 우선 사용돼요.\n" +
-      "비워두고 확인을 누르면 키가 삭제되고 보조 수단(microlink)으로 돌아가요.",
+      "Cloudflare Worker 프록시 주소를 입력하세요.\n" +
+      "(워커 설정법은 대화창에서 안내받은 대로 따라해주세요)\n" +
+      "예: https://link-preview-proxy.내아이디.workers.dev\n\n" +
+      "이 주소가 있으면 이미지 조회에 자동으로 우선 사용돼요.\n" +
+      "비워두고 확인을 누르면 삭제되고 보조 수단(microlink)으로 돌아가요.",
       current
     );
     if (input === null) return; // cancelled
-    state.exabaseApiKey = input.trim();
-    localStorage.setItem("linkArchiveExabaseKey", state.exabaseApiKey);
-    alert(state.exabaseApiKey ? "Exabase API 키를 저장했어요." : "Exabase API 키를 삭제했어요.");
+    state.workerUrl = input.trim();
+    localStorage.setItem("linkArchiveWorkerUrl", state.workerUrl);
+    alert(state.workerUrl ? "프록시 주소를 저장했어요." : "프록시 주소를 삭제했어요.");
   });
 
-  document.getElementById("testExabaseBtn").addEventListener("click", function(){
-    if (!state.exabaseApiKey){
-      alert("먼저 Exabase 키를 설정해주세요.");
+  document.getElementById("testWorkerBtn").addEventListener("click", function(){
+    if (!state.workerUrl){
+      alert("먼저 프록시 주소를 설정해주세요.");
       return;
     }
-    var btn = document.getElementById("testExabaseBtn");
+    var btn = document.getElementById("testWorkerBtn");
     var originalText = btn.textContent;
     btn.textContent = "테스트 중…";
     btn.disabled = true;
-    fetch("https://api.exabase.io/v2/link-preview?q=" + encodeURIComponent("https://apple.com"), {
-      headers: { "Authorization": "Bearer " + state.exabaseApiKey }
-    })
+    var base = state.workerUrl.replace(/\/+$/, "");
+    fetch(base + "?url=" + encodeURIComponent("https://apple.com"))
       .then(function(res){
         return res.text().then(function(bodyText){ return { status: res.status, ok: res.ok, body: bodyText }; });
       })
       .then(function(r){
         if (r.ok){
-          alert("✅ 연결 성공!\n키가 정상적으로 동작해요.\n\n응답 일부:\n" + r.body.slice(0, 200));
+          alert("✅ 연결 성공!\n프록시가 정상적으로 동작해요.\n\n응답 일부:\n" + r.body.slice(0, 200));
         } else {
           alert("❌ 실패 (상태 코드 " + r.status + ")\n\n서버 응답:\n" + r.body.slice(0, 300));
         }
       })
       .catch(function(err){
-        alert("❌ 요청 자체가 브라우저에서 막혔어요 (네트워크/CORS 오류).\n\n" + err.message + "\n\n키 문제가 아니라 연결 자체가 차단된 거예요.");
+        alert("❌ 요청 자체가 브라우저에서 막혔어요.\n\n" + err.message + "\n\n워커 주소가 정확한지, 워커가 배포됐는지 확인해주세요.");
       })
       .finally(function(){
         btn.textContent = originalText;
