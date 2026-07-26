@@ -107,7 +107,7 @@
   }
   .folder-toggle:hover{ color:var(--pink-deep); }
   .folder-toggle-spacer{ width:16px; flex-shrink:0; display:inline-block; }
-  #folderList .nav-item{ touch-action:pan-y; -webkit-user-select:none; user-select:none; -webkit-touch-callout:none; }
+  #folderList .nav-item{ touch-action:none; -webkit-user-select:none; user-select:none; -webkit-touch-callout:none; }
   .nav-item.drag-hidden{ opacity:0; }
   .drag-ghost{
     position:fixed; z-index:9999; pointer-events:none; margin:0;
@@ -775,16 +775,33 @@
       if (e.target.closest(".folder-actions") || e.target.closest(".folder-toggle")) return;
       var startX = e.clientX, startY = e.clientY;
       var moved = false;
+      var manualScrolling = false;
+      var scrollEl = getScrollableAncestor(document.getElementById("folderList"));
+      var usingWindow = !scrollEl;
+      var scrollStart = usingWindow ? (window.scrollY || document.documentElement.scrollTop) : scrollEl.scrollTop;
+
       var timer = setTimeout(function(){
         if (moved) return;
         startFolderDrag(li, folder, parentId, startX, startY);
       }, 420);
+
       function onMove(ev){
-        if (Math.abs(ev.clientY-startY) > 10 || Math.abs(ev.clientX-startX) > 10){
-          moved = true; clearTimeout(timer); cleanup();
+        if (!moved && (Math.abs(ev.clientY-startY) > 8 || Math.abs(ev.clientX-startX) > 8)){
+          moved = true;
+          clearTimeout(timer);
+          manualScrolling = true; // fast swipe before long-press fired: treat as a normal scroll, not a drag
+        }
+        if (manualScrolling){
+          ev.preventDefault();
+          var newTop = scrollStart + (startY - ev.clientY);
+          if (usingWindow) window.scrollTo(0, newTop); else scrollEl.scrollTop = newTop;
         }
       }
-      function onUp(){ clearTimeout(timer); cleanup(); }
+      function onUp(){
+        clearTimeout(timer);
+        if (moved) suppressNextFolderClick = true; // avoid selecting a folder after a scroll swipe
+        cleanup();
+      }
       function cleanup(){
         document.removeEventListener("pointermove", onMove);
         document.removeEventListener("pointerup", onUp);

@@ -1,4 +1,4 @@
-const CACHE_NAME = "link-archive-v20";
+const CACHE_NAME = "link-archive-v21";
 const APP_SHELL = ["./", "./index.html", "./manifest.json", "./icon-192.png", "./icon-512.png"];
 
 self.addEventListener("install", function(event){
