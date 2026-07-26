@@ -107,7 +107,7 @@
   }
   .folder-toggle:hover{ color:var(--pink-deep); }
   .folder-toggle-spacer{ width:16px; flex-shrink:0; display:inline-block; }
-  #folderList .nav-item{ touch-action:none; -webkit-user-select:none; user-select:none; -webkit-touch-callout:none; }
+  #folderList .nav-item{ touch-action:pan-y; -webkit-user-select:none; user-select:none; -webkit-touch-callout:none; }
   .nav-item.drag-hidden{ opacity:0; }
   .drag-ghost{
     position:fixed; z-index:9999; pointer-events:none; margin:0;
@@ -502,8 +502,7 @@
       <label>이미지 조회 서비스</label>
       <button type="button" class="btn-mini" id="setWorkerUrlBtn" style="width:100%;">🔗 이미지 조회 프록시 주소 설정 (월 20,000건, 추천)</button>
       <button type="button" class="btn-mini" id="testWorkerBtn" style="width:100%; margin-top:6px;">🔍 연결 테스트</button>
-      <button type="button" class="btn-mini" id="setApiKeyBtn" style="margin-top:6px; width:100%;">🔑 보조 키 설정 (일 50건, 키 없어도 동작)</button>
-      <div class="field-hint">위 키를 넣으면 자동으로 우선 사용돼요. 보조 키는 안 넣어도 앱이 잘 동작하니 필수는 아니에요.</div>
+      <div class="field-hint">위 프록시를 넣으면 자동으로 우선 사용돼요. 안 넣어도 앱이 잘 동작하니 필수는 아니에요.</div>
     </div>
 
     <div class="modal-actions">
@@ -829,7 +828,7 @@
     var scrollEl = getScrollableAncestor(document.getElementById("folderList"));
     var usingWindow = !scrollEl;
     var curPointerY = startY;
-    var lastTargetId = null;
+    var lastIndex = -1;
     var scrollRAF = null;
 
     function markHidden(){
@@ -864,18 +863,17 @@
       var siblings = Array.prototype.slice.call(
         document.querySelectorAll('#folderList .nav-item[data-parent-id="' + (parentId || "") + '"]')
       ).filter(function(el){ return el.dataset.folderId !== draggedId; });
-      var target = null, before = true, bestDist = Infinity;
+      var insertIndex = 0;
       siblings.forEach(function(sib){
         var r = sib.getBoundingClientRect();
         var center = r.top + r.height / 2;
-        var dist = Math.abs(center - ev.clientY);
-        if (dist < bestDist){ bestDist = dist; target = sib; before = ev.clientY < center; }
+        if (ev.clientY > center) insertIndex++;
       });
-      if (target && target.dataset.folderId !== lastTargetId){
-        reorderFolderAmongSiblings(draggedId, target.dataset.folderId, before, parentId);
+      if (insertIndex !== lastIndex){
+        reorderFolderToIndex(draggedId, parentId, insertIndex);
         renderFolderList();
         markHidden();
-        lastTargetId = target.dataset.folderId;
+        lastIndex = insertIndex;
       }
     }
     function onUp(){
@@ -892,11 +890,10 @@
     document.addEventListener("pointerup", onUp);
   }
 
-  function reorderFolderAmongSiblings(folderId, targetId, insertBefore, parentId){
+  function reorderFolderToIndex(folderId, parentId, index){
     var siblingIds = folderChildren(parentId).map(function(f){ return f.id; }).filter(function(id){ return id !== folderId; });
-    var idx = siblingIds.indexOf(targetId);
-    if (idx === -1){ siblingIds.push(folderId); }
-    else { siblingIds.splice(insertBefore ? idx : idx + 1, 0, folderId); }
+    index = Math.max(0, Math.min(index, siblingIds.length));
+    siblingIds.splice(index, 0, folderId);
     var used = false;
     var newArr = [];
     state.data.folders.forEach(function(f){
@@ -1568,21 +1565,6 @@
         btn.textContent = originalText;
         btn.disabled = false;
       });
-  });
-
-  document.getElementById("setApiKeyBtn").addEventListener("click", function(){
-    var current = state.microlinkApiKey || "";
-    var input = prompt(
-      "microlink.io에서 무료로 발급받은 API 키를 입력하세요.\n" +
-      "(익명 사용자 전체가 나눠 쓰는 한도 대신, 이 폰만의 개인 한도를 쓰게 돼요.)\n" +
-      "발급: microlink.io 접속 → 무료 가입 → API 키 복사\n\n" +
-      "비워두고 확인을 누르면 키가 삭제돼요.",
-      current
-    );
-    if (input === null) return; // cancelled
-    state.microlinkApiKey = input.trim();
-    localStorage.setItem("linkArchiveMicrolinkKey", state.microlinkApiKey);
-    alert(state.microlinkApiKey ? "API 키를 저장했어요." : "API 키를 삭제했어요.");
   });
 
   document.getElementById("exportBtn").addEventListener("click", function(){
