@@ -35,7 +35,7 @@
     font-size:16px;
   }
   *{box-sizing:border-box;}
-  html,body{margin:0;padding:0;}
+  html,body{margin:0;padding:0; overscroll-behavior-y:none;}
   body{
     background:
       radial-gradient(ellipse at top left, var(--pink-pale), transparent 45%),
@@ -738,7 +738,10 @@
     countEl.textContent = count;
     li.appendChild(countEl);
 
-    li.addEventListener("click", function(){ state.folderFilter=f.id; state.tagFilter=null; render(); });
+    li.addEventListener("click", function(){
+      if (suppressNextFolderClick){ suppressNextFolderClick = false; return; }
+      state.folderFilter=f.id; state.tagFilter=null; render();
+    });
 
     var actions = document.createElement("span");
     actions.className = "folder-actions";
@@ -766,6 +769,8 @@
   }
 
   /* ---- long-press drag reordering (siblings only) ---- */
+  var suppressNextFolderClick = false;
+
   function attachFolderDrag(li, folder, parentId){
     li.addEventListener("pointerdown", function(e){
       if (e.target.closest(".folder-actions") || e.target.closest(".folder-toggle")) return;
@@ -803,6 +808,7 @@
   }
 
   function startFolderDrag(li, folder, parentId, startX, startY){
+    suppressNextFolderClick = true;
     var draggedId = folder.id;
     var rect = li.getBoundingClientRect();
     var grabOffsetY = startY - rect.top;
