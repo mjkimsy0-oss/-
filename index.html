@@ -331,6 +331,8 @@
         <label class="btn-mini" style="flex:1; text-align:center; cursor:pointer;">⬆ 가져오기<input type="file" id="importFile" accept="application/json" style="display:none;"></label>
       </div>
       <div class="field-hint" style="margin-top:7px;">폰을 바꿀 때, 여기서 내보낸 파일을 새 폰에서 같은 사이트를 열고 가져오기 하면 그대로 이어져요.</div>
+      <button type="button" class="btn-mini" id="setExabaseKeyBtn" style="margin-top:9px; width:100%;">🔑 이미지 조회 키 설정 (월 20,000건 무료, 추천)</button>
+      <button type="button" class="btn-mini" id="setApiKeyBtn" style="margin-top:6px; width:100%;">🔑 보조 키 설정 (일 50건, 키 없어도 동작)</button>
     </div>
   </aside>
 
@@ -577,6 +579,9 @@
     currentTags: [],
     currentThumb: null,
     fetchToken: 0,
+    lastFetchedUrl: null,
+    microlinkApiKey: localStorage.getItem("linkArchiveMicrolinkKey") || "",
+    exabaseApiKey: localStorage.getItem("linkArchiveExabaseKey") || "",
     viewMode: localStorage.getItem("linkArchiveViewMode") || "gallery"
   };
 
@@ -935,9 +940,25 @@
       fetchYoutubeTitle(url);
       return;
     }
+    if (!force && url === state.lastFetchedUrl) return; // avoid burning quota on duplicate calls (typing + blur) for the same URL
+    state.lastFetchedUrl = url;
     var myToken = ++state.fetchToken;
     setThumbStatus("이미지를 불러오는 중…", "loading");
-    fetch(METADATA_API + encodeURIComponent(url) + "&palette=false")
+
+    var provider, req;
+    if (state.exabaseApiKey){
+      provider = "exabase";
+      req = fetch("https://api.exabase.io/v2/link-preview?q=" + encodeURIComponent(url), {
+        headers: { "Authorization": "Bearer " + state.exabaseApiKey }
+      });
+    } else {
+      provider = "microlink";
+      var apiUrl = METADATA_API + encodeURIComponent(url) + "&palette=false";
+      if (state.microlinkApiKey) apiUrl += "&apikey=" + encodeURIComponent(state.microlinkApiKey);
+      req = fetch(apiUrl);
+    }
+
+    req
       .then(function(res){
         if (res.status === 429) throw new Error("rate_limited");
         if (!res.ok) throw new Error("fetch_failed");
@@ -945,28 +966,40 @@
       })
       .then(function(json){
         if (myToken !== state.fetchToken) return; // stale response, modal moved on
-        if (json.status === "success" && json.data){
-          var data = json.data;
-          if (data.image && data.image.url){
-            state.currentThumb = data.image.url;
-            document.getElementById("f_thumburl").value = "";
-            renderThumbPreview();
-            setThumbStatus("이 링크에서 이미지를 가져왔어요.", "");
-          } else {
-            setThumbStatus("이 링크에는 가져올 이미지가 없어요 (텍스트 게시물 등). 필요하면 아래에서 직접 지정해주세요.", "error");
-          }
-          var titleField = document.getElementById("f_title");
-          if (!titleField.value.trim() && data.title){
-            titleField.value = data.title;
-          }
-        } else {
+        var title = null, imageUrl = null, found = false;
+        if (provider === "exabase"){
+          title = json.title || null;
+          imageUrl = json.image || null;
+          found = true;
+        } else if (json.status === "success" && json.data){
+          title = json.data.title || null;
+          imageUrl = (json.data.image && json.data.image.url) || null;
+          found = true;
+        }
+        if (!found){
           setThumbStatus("이미지를 찾지 못했어요. 아래에서 직접 지정할 수 있어요.", "error");
+          return;
+        }
+        if (imageUrl){
+          state.currentThumb = imageUrl;
+          document.getElementById("f_thumburl").value = "";
+          renderThumbPreview();
+          setThumbStatus("이 링크에서 이미지를 가져왔어요.", "");
+        } else {
+          setThumbStatus("이 링크에는 가져올 이미지가 없어요 (텍스트 게시물 등). 필요하면 아래에서 직접 지정해주세요.", "error");
+        }
+        var titleField = document.getElementById("f_title");
+        if (!titleField.value.trim() && title){
+          titleField.value = title;
         }
       })
       .catch(function(err){
         if (myToken !== state.fetchToken) return;
         if (err.message === "rate_limited"){
-          setThumbStatus("무료 이미지 조회 한도를 초과했어요. 잠시 후 다시 시도하거나 아래에서 직접 지정해주세요.", "error");
+          var hint = provider==="exabase"
+            ? "월 20,000건 무료 한도를 초과했어요."
+            : "무료 조회 한도를 초과했어요 (보통 하루 지나면 풀려요). 사이드바에서 Exabase 키를 설정하면 한도가 훨씬 늘어나요.";
+          setThumbStatus(hint + " 아래에서 직접 지정할 수 있어요.", "error");
         } else {
           setThumbStatus("이미지를 불러오지 못했어요. 아래에서 직접 지정해주세요.", "error");
         }
@@ -1187,6 +1220,37 @@
   updateViewToggleUI();
 
   /* ---------------- backup: export / import ---------------- */
+  document.getElementById("setExabaseKeyBtn").addEventListener("click", function(){
+    var current = state.exabaseApiKey || "";
+    var input = prompt(
+      "exabase.io에서 무료로 발급받은 API 키를 입력하세요.\n" +
+      "(한 달 20,000건 무료 — 신용카드 필요 없음)\n" +
+      "발급: exabase.io 접속 → Start for free → 가입 → 콘솔에서 API 키 복사\n\n" +
+      "이 키가 있으면 이미지 조회에 자동으로 우선 사용돼요.\n" +
+      "비워두고 확인을 누르면 키가 삭제되고 보조 수단(microlink)으로 돌아가요.",
+      current
+    );
+    if (input === null) return; // cancelled
+    state.exabaseApiKey = input.trim();
+    localStorage.setItem("linkArchiveExabaseKey", state.exabaseApiKey);
+    alert(state.exabaseApiKey ? "Exabase API 키를 저장했어요." : "Exabase API 키를 삭제했어요.");
+  });
+
+  document.getElementById("setApiKeyBtn").addEventListener("click", function(){
+    var current = state.microlinkApiKey || "";
+    var input = prompt(
+      "microlink.io에서 무료로 발급받은 API 키를 입력하세요.\n" +
+      "(익명 사용자 전체가 나눠 쓰는 한도 대신, 이 폰만의 개인 한도를 쓰게 돼요.)\n" +
+      "발급: microlink.io 접속 → 무료 가입 → API 키 복사\n\n" +
+      "비워두고 확인을 누르면 키가 삭제돼요.",
+      current
+    );
+    if (input === null) return; // cancelled
+    state.microlinkApiKey = input.trim();
+    localStorage.setItem("linkArchiveMicrolinkKey", state.microlinkApiKey);
+    alert(state.microlinkApiKey ? "API 키를 저장했어요." : "API 키를 삭제했어요.");
+  });
+
   document.getElementById("exportBtn").addEventListener("click", function(){
     var blob = new Blob([JSON.stringify(state.data, null, 2)], { type:"application/json" });
     var url = URL.createObjectURL(blob);
