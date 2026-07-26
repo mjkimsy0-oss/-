@@ -476,6 +476,7 @@
     <div class="field">
       <label>이미지 조회 서비스</label>
       <button type="button" class="btn-mini" id="setExabaseKeyBtn" style="width:100%;">🔑 이미지 조회 키 설정 (월 20,000건 무료, 추천)</button>
+      <button type="button" class="btn-mini" id="testExabaseBtn" style="width:100%; margin-top:6px;">🔍 Exabase 연결 테스트</button>
       <button type="button" class="btn-mini" id="setApiKeyBtn" style="margin-top:6px; width:100%;">🔑 보조 키 설정 (일 50건, 키 없어도 동작)</button>
       <div class="field-hint">위 키를 넣으면 자동으로 우선 사용돼요. 보조 키는 안 넣어도 앱이 잘 동작하니 필수는 아니에요.</div>
     </div>
@@ -1294,6 +1295,37 @@
     state.exabaseApiKey = input.trim();
     localStorage.setItem("linkArchiveExabaseKey", state.exabaseApiKey);
     alert(state.exabaseApiKey ? "Exabase API 키를 저장했어요." : "Exabase API 키를 삭제했어요.");
+  });
+
+  document.getElementById("testExabaseBtn").addEventListener("click", function(){
+    if (!state.exabaseApiKey){
+      alert("먼저 Exabase 키를 설정해주세요.");
+      return;
+    }
+    var btn = document.getElementById("testExabaseBtn");
+    var originalText = btn.textContent;
+    btn.textContent = "테스트 중…";
+    btn.disabled = true;
+    fetch("https://api.exabase.io/v2/link-preview?q=" + encodeURIComponent("https://apple.com"), {
+      headers: { "Authorization": "Bearer " + state.exabaseApiKey }
+    })
+      .then(function(res){
+        return res.text().then(function(bodyText){ return { status: res.status, ok: res.ok, body: bodyText }; });
+      })
+      .then(function(r){
+        if (r.ok){
+          alert("✅ 연결 성공!\n키가 정상적으로 동작해요.\n\n응답 일부:\n" + r.body.slice(0, 200));
+        } else {
+          alert("❌ 실패 (상태 코드 " + r.status + ")\n\n서버 응답:\n" + r.body.slice(0, 300));
+        }
+      })
+      .catch(function(err){
+        alert("❌ 요청 자체가 브라우저에서 막혔어요 (네트워크/CORS 오류).\n\n" + err.message + "\n\n키 문제가 아니라 연결 자체가 차단된 거예요.");
+      })
+      .finally(function(){
+        btn.textContent = originalText;
+        btn.disabled = false;
+      });
   });
 
   document.getElementById("setApiKeyBtn").addEventListener("click", function(){
