@@ -531,6 +531,15 @@
 
   function uid(){ return Date.now().toString(36) + Math.random().toString(36).slice(2,7); }
   function isValidUrl(u){ try{ new URL(u); return true; }catch(e){ return false; } }
+  // Normalize a proxy/worker URL: trim, strip trailing slashes, and add https:// if the
+  // scheme was left off (a missing scheme makes fetch() treat it as a relative path on
+  // this same GitHub Pages site, which fails silently with a confusing "page not found").
+  function normalizeWorkerUrl(raw){
+    var u = (raw || "").trim();
+    if (!u) return "";
+    if (!/^https?:\/\//i.test(u)) u = "https://" + u;
+    return u.replace(/\/+$/, "");
+  }
 
   function loadData(){
     try{
@@ -981,8 +990,8 @@
 
     function fetchProvider(name){
       if (name === "worker"){
-        var base = state.workerUrl.replace(/\/+$/, "");
-        return fetch(base + "?url=" + encodeURIComponent(url)).then(parseRes).then(function(json){
+        var base = normalizeWorkerUrl(state.workerUrl);
+        return fetch(base + "?q=" + encodeURIComponent(url)).then(parseRes).then(function(json){
           var web = (json.extraction && json.extraction.web) || null;
           return {
             title: json.title || (web && web.title) || null,
@@ -1291,7 +1300,7 @@
       current
     );
     if (input === null) return; // cancelled
-    state.workerUrl = input.trim();
+    state.workerUrl = normalizeWorkerUrl(input);
     localStorage.setItem("linkArchiveWorkerUrl", state.workerUrl);
     alert(state.workerUrl ? "프록시 주소를 저장했어요." : "프록시 주소를 삭제했어요.");
   });
@@ -1305,8 +1314,8 @@
     var originalText = btn.textContent;
     btn.textContent = "테스트 중…";
     btn.disabled = true;
-    var base = state.workerUrl.replace(/\/+$/, "");
-    fetch(base + "?url=" + encodeURIComponent("https://apple.com"))
+    var base = normalizeWorkerUrl(state.workerUrl);
+    fetch(base + "?q=" + encodeURIComponent("https://apple.com"))
       .then(function(res){
         return res.text().then(function(bodyText){ return { status: res.status, ok: res.ok, body: bodyText }; });
       })
